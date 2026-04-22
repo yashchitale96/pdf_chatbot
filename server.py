@@ -1,5 +1,7 @@
 import os
 import shutil
+import cloudinary
+import cloudinary.uploader
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -12,6 +14,12 @@ from langchain_chroma import Chroma
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 
 load_dotenv()
+
+cloudinary.config(
+    cloud_name=os.getenv("CLOUDINARY_CLOUD_NAME"),
+    api_key=os.getenv("CLOUDINARY_API_KEY"),
+    api_secret=os.getenv("CLOUDINARY_API_SECRET"),
+)
 
 app = FastAPI()
 
@@ -50,28 +58,46 @@ class ChatRequest(BaseModel):
 async def upload_file(file: UploadFile = File(...)):
     if not file.filename.endswith('.pdf'):
         raise HTTPException(status_code=400, detail="Only PDF files are supported")
-    
+
     file_path = os.path.join(DOCS_DIR, file.filename)
     with open(file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
-        
+
     try:
-        # Load the document
+        # Upload to Cloudinary as a raw asset
+        public_id = os.path.splitext(file.filename)[0]
+        upload_result = cloudinary.uploader.upload(
+            file_path,
+            resource_type="raw",
+            folder="pdf_chatbot",
+            public_id=public_id,
+            overwrite=True,
+        )
+        cloudinary_url = upload_result["secure_url"]
+
+        # Load and split the document
         loader = PyPDFLoader(file_path)
         documents = loader.load()
-        
-        # Split documents
         text_splitter = CharacterTextSplitter(chunk_size=800, chunk_overlap=100)
         chunks = text_splitter.split_documents(documents)
-        
+
+        # Tag each chunk with the Cloudinary URL
+        for chunk in chunks:
+            chunk.metadata["cloudinary_url"] = cloudinary_url
+
         # Add to vector store
         global db
         if not db:
             raise HTTPException(status_code=500, detail="AI models not initialized.")
-        
+
         db.add_documents(chunks)
-        
-        return {"filename": file.filename, "message": f"Successfully ingested {len(chunks)} chunks"}
+        os.remove(file_path)
+
+        return {
+            "filename": file.filename,
+            "cloudinary_url": cloudinary_url,
+            "message": f"Successfully ingested {len(chunks)} chunks",
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

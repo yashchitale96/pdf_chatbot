@@ -8,3 +8,4 @@ langchain-openai
 langchain-chroma
 python-dotenv
 langchain-text-splitters
+cloudinary
