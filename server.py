@@ -43,7 +43,7 @@ llm = None
 try:
     embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
     db = Chroma(persist_directory=DB_DIR, embedding_function=embeddings)
-    llm = ChatOpenAI(model="gpt-4o")
+    llm = ChatOpenAI(model="gpt-4o-mini")
 except Exception as e:
     print(f"Warning: Could not initialize AI models. {e}")
 
